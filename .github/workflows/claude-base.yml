@@ -76,6 +76,7 @@ jobs:
             ${{ inputs.max_turns != '' && format('--max-turns {0}', inputs.max_turns) || '' }}
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
+            https://github.com/EveryInc/compound-engineering-plugin.git
           plugins: |
             agent-sdk-dev@claude-plugins-official
             clangd-lsp@claude-plugins-official
@@ -109,3 +110,4 @@ jobs:
             skill-creator@claude-plugins-official
             swift-lsp@claude-plugins-official
             typescript-lsp@claude-plugins-official
+            compound-engineering@compound-engineering

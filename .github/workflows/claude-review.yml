@@ -61,6 +61,7 @@ jobs:
           track_progress: true
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
+            https://github.com/EveryInc/compound-engineering-plugin.git
           plugins: |
             code-review@claude-plugins-official
             pr-review-toolkit@claude-plugins-official
@@ -78,3 +79,4 @@ jobs:
             swift-lsp@claude-plugins-official
             csharp-lsp@claude-plugins-official
             lua-lsp@claude-plugins-official
+            compound-engineering@compound-engineering

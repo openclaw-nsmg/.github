@@ -6,6 +6,12 @@
         "source": "github",
         "repo": "anthropics/claude-plugins-official"
       }
+    },
+    "compound-engineering": {
+      "source": {
+        "source": "github",
+        "repo": "EveryInc/compound-engineering-plugin"
+      }
     }
   },
   "enabledPlugins": {
@@ -40,6 +46,7 @@
     "session-report@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "compound-engineering@compound-engineering": true
   }
 }
