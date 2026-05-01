@@ -1,0 +1,80 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Claude Code — Organization PR Review Reusable Workflow          ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║                                                                  ║
+# ║  Comprehensive PR review with all official plugins.              ║
+# ║                                                                  ║
+# ║  Usage in child repos:                                           ║
+# ║    jobs:                                                         ║
+# ║      review:                                                     ║
+# ║        uses: openclaw-nsmg/.github/.github/workflows/            ║
+# ║              claude-review.yml@main                              ║
+# ║        secrets: inherit                                          ║
+# ║                                                                  ║
+# ╚══════════════════════════════════════════════════════════════════╝
+name: Claude Code Review (Org Base)
+on:
+  workflow_call:
+    inputs:
+      prompt:
+        description: "Additional review instructions"
+        required: false
+        type: string
+        default: |
+          Review this PR comprehensively. Focus on:
+          1. Code correctness and potential bugs
+          2. Security vulnerabilities
+          3. Performance implications
+          4. Type safety and error handling
+          5. Code style and maintainability
+      timeout_minutes:
+        description: "Job timeout in minutes"
+        required: false
+        type: number
+        default: 20
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ inputs.prompt }}
+          track_progress: true
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+          plugins: |
+            code-review@claude-plugins-official
+            pr-review-toolkit@claude-plugins-official
+            security-guidance@claude-plugins-official
+            code-simplifier@claude-plugins-official
+            typescript-lsp@claude-plugins-official
+            pyright-lsp@claude-plugins-official
+            gopls-lsp@claude-plugins-official
+            rust-analyzer-lsp@claude-plugins-official
+            clangd-lsp@claude-plugins-official
+            jdtls-lsp@claude-plugins-official
+            kotlin-lsp@claude-plugins-official
+            ruby-lsp@claude-plugins-official
+            php-lsp@claude-plugins-official
+            swift-lsp@claude-plugins-official
+            csharp-lsp@claude-plugins-official
+            lua-lsp@claude-plugins-official
