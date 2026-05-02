@@ -1,0 +1,19 @@
+name: Routine — Bug Triage (API Relay)
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  relay-to-routine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Claude Bug Triage Routine via API
+        run: |
+          curl -s -X POST \
+            "https://api.anthropic.com/v1/claude_code/routines/trig_011Eu1zb4X6YnpA67wUykE5b/fire" \
+            -H "Authorization: Bearer ${{ secrets.ROUTINE_BUG_TRIAGE_TOKEN }}" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"New issue opened in ${{ github.repository }}.\n\nTitle: ${{ github.event.issue.title }}\nAuthor: ${{ github.event.issue.user.login }}\nURL: ${{ github.event.issue.html_url }}\n\nBody:\n${{ github.event.issue.body }}\"}"
