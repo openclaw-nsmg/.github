@@ -1,0 +1,17 @@
+name: Routine — PR Reviewer (API Trigger Relay)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  relay-to-routine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger PR Reviewer Routine via API
+        run: |
+          curl -s -X POST \
+            "https://api.anthropic.com/v1/claude_code/routines/trig_0174SvdFAFbWTfiJD44NuYkr/fire" \
+            -H "Authorization: Bearer ${{ secrets.ROUTINE_PR_REVIEWER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"PR opened in ${{ github.repository }}#${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}\"}"
