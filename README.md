@@ -103,20 +103,69 @@ jobs:
     uses: openclaw-nsmg/.github/.github/workflows/reusable-i18n-lint.yml@main
 ```
 
+```yaml
+# In your repo's .github/workflows/accessibility.yml
+name: Accessibility
+on:
+  pull_request:
+jobs:
+  a11y:
+    uses: openclaw-nsmg/.github/.github/workflows/reusable-accessibility.yml@main
+    with:
+      base_url: 'http://localhost:4321'
+```
+
+```yaml
+# In your repo's .github/workflows/lighthouse.yml
+name: Lighthouse
+on:
+  pull_request:
+jobs:
+  perf:
+    uses: openclaw-nsmg/.github/.github/workflows/reusable-lighthouse.yml@main
+```
+
+```yaml
+# In your repo's .github/workflows/link-check.yml
+name: Link Check
+on:
+  pull_request:
+    paths: ['**.md', '**.html']
+jobs:
+  links:
+    uses: openclaw-nsmg/.github/.github/workflows/reusable-link-check.yml@main
+```
+
+```yaml
+# In your repo's .github/workflows/security-review.yml
+name: Security Review
+on:
+  pull_request:
+jobs:
+  security:
+    uses: openclaw-nsmg/.github/.github/workflows/reusable-security-review.yml@main
+    permissions:
+      security-events: write
+```
+
 ## File Structure
 
 ```
 .github/
 └── workflows/
-    ├── routine-bug-triage.yml       # Routine: auto-triage new issues
-    ├── routine-changelog.yml        # Routine: auto-generate changelogs
-    ├── routine-pr-reviewer.yml      # Routine: auto PR review
-    ├── routine-release-notes.yml    # Routine: auto release notes
-    ├── reusable-vale.yml            # Reusable: prose linting (errata-ai/vale)
-    └── reusable-i18n-lint.yml       # Reusable: i18n hardcode detection
+    ├── routine-bug-triage.yml           # Routine: auto-triage new issues
+    ├── routine-changelog.yml            # Routine: auto-generate changelogs
+    ├── routine-pr-reviewer.yml          # Routine: auto PR review
+    ├── routine-release-notes.yml        # Routine: auto release notes
+    ├── reusable-vale.yml                # Reusable: prose linting (errata-ai/vale)
+    ├── reusable-i18n-lint.yml           # Reusable: i18n hardcode detection
+    ├── reusable-accessibility.yml       # Reusable: axe-core via pa11y-ci (REPORT-110)
+    ├── reusable-lighthouse.yml          # Reusable: performance budget (REPORT-110)
+    ├── reusable-link-check.yml          # Reusable: broken link detection (lychee)
+    └── reusable-security-review.yml     # Reusable: CodeQL + Trivy (REPORT-098)
 .claude/
-└── settings.json                    # Canonical plugin list (reference for all repos)
-README.md                            # This file
+└── settings.json                        # Canonical plugin list (reference for all repos)
+README.md                                # This file
 ```
 
 ## Adding a New Plugin
