@@ -18,6 +18,18 @@
         "source": "github",
         "repo": "openclaw-nsmg/claude-plugins"
       }
+    },
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      }
+    },
+    "knowledge-work-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/knowledge-work-plugins"
+      }
     }
   },
   "enabledPlugins": {
@@ -54,10 +66,11 @@
     "swift-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "compound-engineering@compound-engineering": true,
-    "quality-gates@openclaw-nsmg-plugins": true,
     "security-hooks@openclaw-nsmg-plugins": true,
     "governance-agents@openclaw-nsmg-plugins": true,
     "atdd-toolkit@openclaw-nsmg-plugins": true,
-    "dev-commands@openclaw-nsmg-plugins": true
+    "dev-commands@openclaw-nsmg-plugins": true,
+    "impeccable@impeccable": true,
+    "brand-voice@knowledge-work-plugins": true
   }
 }
