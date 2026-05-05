@@ -77,16 +77,46 @@ All official plugins are enabled except `example-plugin` (demo only) and `math-o
 | Language Servers | `typescript-lsp`, `pyright-lsp`, `gopls-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `jdtls-lsp`, `kotlin-lsp`, `ruby-lsp`, `php-lsp`, `swift-lsp`, `csharp-lsp`, `lua-lsp` |
 | Advanced | `ralph-loop`, `mcp-server-dev`, `agent-sdk-dev`, `plugin-dev` |
 
+### 3. Quality Gate Reusable Workflows
+
+Centralized CI quality gates that all repos can call:
+
+```yaml
+# In your repo's .github/workflows/vale.yml
+name: Vale
+on:
+  pull_request:
+    paths: ['src/**/*.md', 'src/**/*.mdx', 'src/**/*.astro']
+jobs:
+  vale:
+    uses: openclaw-nsmg/.github/.github/workflows/reusable-vale.yml@main
+```
+
+```yaml
+# In your repo's .github/workflows/i18n-lint.yml
+name: i18n
+on:
+  pull_request:
+    paths: ['src/**/*.tsx', 'src/**/*.ts']
+jobs:
+  i18n:
+    uses: openclaw-nsmg/.github/.github/workflows/reusable-i18n-lint.yml@main
+```
+
 ## File Structure
 
 ```
 .github/
 └── workflows/
-    ├── claude-base.yml      # Reusable: general-purpose Claude agent
-    └── claude-review.yml    # Reusable: PR review with all LSPs
+    ├── routine-bug-triage.yml       # Routine: auto-triage new issues
+    ├── routine-changelog.yml        # Routine: auto-generate changelogs
+    ├── routine-pr-reviewer.yml      # Routine: auto PR review
+    ├── routine-release-notes.yml    # Routine: auto release notes
+    ├── reusable-vale.yml            # Reusable: prose linting (errata-ai/vale)
+    └── reusable-i18n-lint.yml       # Reusable: i18n hardcode detection
 .claude/
-└── settings.json            # Canonical plugin list (reference for all repos)
-README.md                    # This file
+└── settings.json                    # Canonical plugin list (reference for all repos)
+README.md                            # This file
 ```
 
 ## Adding a New Plugin
