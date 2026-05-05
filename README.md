@@ -1,4 +1,4 @@
-# openclaw-nsmg Organization Configuration
+# openclaw-nsmg/.github
 
 Central configuration repository for the **openclaw-nsmg** GitHub organization.
 
@@ -77,76 +77,19 @@ All official plugins are enabled except `example-plugin` (demo only) and `math-o
 | Language Servers | `typescript-lsp`, `pyright-lsp`, `gopls-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `jdtls-lsp`, `kotlin-lsp`, `ruby-lsp`, `php-lsp`, `swift-lsp`, `csharp-lsp`, `lua-lsp` |
 | Advanced | `ralph-loop`, `mcp-server-dev`, `agent-sdk-dev`, `plugin-dev` |
 
-### 3. Quality Gate Reusable Workflows
+### 3. Quality Gate CI Workflows
 
-Centralized CI quality gates that all repos can call:
-
-```yaml
-# In your repo's .github/workflows/vale.yml
-name: Vale
-on:
-  pull_request:
-    paths: ['src/**/*.md', 'src/**/*.mdx', 'src/**/*.astro']
-jobs:
-  vale:
-    uses: openclaw-nsmg/.github/.github/workflows/reusable-vale.yml@main
-```
+Quality gate CI workflows are centralized in **`openclaw-nsmg/governance-central`** (not this repo). All repos call reusable workflows from governance-central:
 
 ```yaml
-# In your repo's .github/workflows/i18n-lint.yml
-name: i18n
-on:
-  pull_request:
-    paths: ['src/**/*.tsx', 'src/**/*.ts']
+# Example: calling governance-central's reusable workflow
 jobs:
-  i18n:
-    uses: openclaw-nsmg/.github/.github/workflows/reusable-i18n-lint.yml@main
+  ci-summary:
+    uses: openclaw-nsmg/governance-central/.github/workflows/reusable-ci-summary.yml@main
+    secrets: inherit
 ```
 
-```yaml
-# In your repo's .github/workflows/accessibility.yml
-name: Accessibility
-on:
-  pull_request:
-jobs:
-  a11y:
-    uses: openclaw-nsmg/.github/.github/workflows/reusable-accessibility.yml@main
-    with:
-      base_url: 'http://localhost:4321'
-```
-
-```yaml
-# In your repo's .github/workflows/lighthouse.yml
-name: Lighthouse
-on:
-  pull_request:
-jobs:
-  perf:
-    uses: openclaw-nsmg/.github/.github/workflows/reusable-lighthouse.yml@main
-```
-
-```yaml
-# In your repo's .github/workflows/link-check.yml
-name: Link Check
-on:
-  pull_request:
-    paths: ['**.md', '**.html']
-jobs:
-  links:
-    uses: openclaw-nsmg/.github/.github/workflows/reusable-link-check.yml@main
-```
-
-```yaml
-# In your repo's .github/workflows/security-review.yml
-name: Security Review
-on:
-  pull_request:
-jobs:
-  security:
-    uses: openclaw-nsmg/.github/.github/workflows/reusable-security-review.yml@main
-    permissions:
-      security-events: write
-```
+See `governance-central` for the full list of 34+ reusable workflows.
 
 ## File Structure
 
@@ -156,13 +99,7 @@ jobs:
     ├── routine-bug-triage.yml           # Routine: auto-triage new issues
     ├── routine-changelog.yml            # Routine: auto-generate changelogs
     ├── routine-pr-reviewer.yml          # Routine: auto PR review
-    ├── routine-release-notes.yml        # Routine: auto release notes
-    ├── reusable-vale.yml                # Reusable: prose linting (errata-ai/vale)
-    ├── reusable-i18n-lint.yml           # Reusable: i18n hardcode detection
-    ├── reusable-accessibility.yml       # Reusable: axe-core via pa11y-ci (REPORT-110)
-    ├── reusable-lighthouse.yml          # Reusable: performance budget (REPORT-110)
-    ├── reusable-link-check.yml          # Reusable: broken link detection (lychee)
-    └── reusable-security-review.yml     # Reusable: CodeQL + Trivy (REPORT-098)
+    └── routine-release-notes.yml        # Routine: auto release notes
 .claude/
 └── settings.json                        # Canonical plugin list (reference for all repos)
 README.md                                # This file
