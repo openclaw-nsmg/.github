@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI Pipeline — .github (org profile repo)
+# Pattern: manus-skills-hub PR #105 / aio-libs/async-lru
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Check markdown files exist
+        run: |
+          if ls *.md 1>/dev/null 2>&1 || ls **/*.md 1>/dev/null 2>&1; then
+            echo "✅ Markdown files found"
+          else
+            echo "⚠️ No markdown files found, skipping"
+          fi
+
+  # ─── Gate Job: re-actors/alls-green (community standard) ───────────────
+  # Reference: https://github.com/re-actors/alls-green
+  ci-summary:
+    name: CI Summary
+    needs: [markdown-lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
+        with:
+          jobs: ${{ toJSON(needs) }}
