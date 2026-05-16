@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI Pipeline — .github (org profile repo)
+# ─────────────────────────────────────────────────────────────────────────────
+# Minimal CI to satisfy Org Ruleset "CI Summary" required status check.
+# This repo contains only the org profile README; no code to lint or test.
+# The ci.yml itself satisfies the Required Workflow trigger requirement.
+#
+# Pattern: aio-libs/async-lru (alls-green gate)
+# Reference: https://github.com/re-actors/alls-green
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  # ─── Gate Job: re-actors/alls-green (community standard) ───────────────
+  ci-summary:
+    name: CI Summary
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed (no upstream jobs for profile-only repo)
+        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
+        with:
+          jobs: '{}'
