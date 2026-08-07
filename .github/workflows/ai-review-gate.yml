@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Review Gate
+# ─────────────────────────────────────────────────────────────────────────────
+# This workflow acts as a required status check for PRs. It polls the review
+# status of AI reviewers (CodeRabbit, Claude) and emits a success/failure
+# status check named `ai-review`.
+#
+# This replaces the old Gatekeeper's internal review blocking logic, allowing
+# GitHub's Native Auto-Merge to handle the actual merge once this check passes.
+#
+# Managed by: openclaw-nsmg/governance-central
+# Ref: Issue #343 — Gatekeeper Slim-down
+# ─────────────────────────────────────────────────────────────────────────────
+name: AI Review Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  ai-review-check:
+    name: AI Review Status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check AI Review Status
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "Checking review status for PR #$PR_NUMBER..."
+
+          # Get all reviews, group by author, take the latest state for each
+          REVIEWS_JSON=$(gh pr view "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --json reviews \
+            --jq '[.reviews | group_by(.author.login)[] | sort_by(.submittedAt) | last]')
+
+          # Check for any CHANGES_REQUESTED
+          CHANGES_REQUESTED=$(echo "$REVIEWS_JSON" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+
+          if [ "$CHANGES_REQUESTED" -gt "0" ]; then
+            echo "::error::Found $CHANGES_REQUESTED pending CHANGES_REQUESTED review(s)."
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            echo "description=Pending CHANGES_REQUESTED reviews" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Check if CodeRabbit has approved (if it has reviewed at all)
+          CODERABBIT_STATE=$(echo "$REVIEWS_JSON" | jq -r '.[] | select(.author.login == "coderabbitai[bot]") | .state' || echo "")
+
+          if [ -n "$CODERABBIT_STATE" ] && [ "$CODERABBIT_STATE" != "APPROVED" ] && [ "$CODERABBIT_STATE" != "COMMENTED" ]; then
+             echo "::error::CodeRabbit review state is $CODERABBIT_STATE (needs APPROVED or COMMENTED)."
+             echo "status=failure" >> "$GITHUB_OUTPUT"
+             echo "description=CodeRabbit review pending" >> "$GITHUB_OUTPUT"
+             exit 1
+          fi
+
+          echo "AI reviews are clear."
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "description=AI reviews passed" >> "$GITHUB_OUTPUT"
+
+      - name: Update Commit Status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          STATE: ${{ steps.check.outputs.status || 'error' }}
+          DESC: ${{ steps.check.outputs.description || 'Failed to check AI reviews' }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/statuses/$SHA" \
+            -f state="$STATE" \
+            -f context="ai-review" \
+            -f description="$DESC"
