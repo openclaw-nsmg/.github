@@ -1,0 +1,102 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MegaLinter configuration — format-layer only
+# ─────────────────────────────────────────────────────────────────────────────
+# Reference: https://megalinter.io/latest/config-file/
+# Source of truth: openclaw-nsmg/governance-central → shared/templates/.mega-linter.yml
+# Distributed to repo roots by sync.yml as `.mega-linter.yml`.
+#
+# Scope (REPORT-146 §5 A-6 / REPORT-145):
+#   MegaLinter is a *format-only* complement to existing linters. Content
+#   linting, security scanning, type checking and spelling are handled by
+#   dedicated workflows — see ENABLE_LINTERS / DISABLE_LINTERS below.
+#
+# > This file is managed by openclaw-nsmg/governance-central. Do not edit locally.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Only run linters that are present in the documentation flavor; do not fail
+# the run if a linter is missing because we use the lightweight flavor (~300 MB).
+FAIL_IF_MISSING_LINTER_IN_FLAVOR: false
+
+# Diff-only mode: only check files that changed in the PR / push. The full
+# tree is validated nightly by the dedicated quality workflows.
+VALIDATE_ALL_CODEBASE: false
+
+# Explicit allow-list of linters. Anything not in this list is disabled,
+# regardless of what the documentation flavor ships with.
+ENABLE_LINTERS:
+  - YAML_YAMLLINT          # YAML formatting
+  - MARKDOWN_MARKDOWNLINT  # Markdown formatting (complements vale's prose checks)
+  - BASH_SHELLCHECK        # Shell script syntax
+  - JSON_JSONLINT          # JSON formatting
+  - ACTION_ACTIONLINT      # GitHub Actions workflow syntax
+
+# Explicit disable list — documents what is intentionally *not* MegaLinter's job.
+# Each entry below is covered by a dedicated workflow / tool elsewhere.
+DISABLE_LINTERS:
+  # JS/TS — covered by per-project ESLint
+  - JAVASCRIPT_ES
+  - JAVASCRIPT_STANDARD
+  - JAVASCRIPT_PRETTIER
+  - TYPESCRIPT_ES
+  - TYPESCRIPT_STANDARD
+  - TYPESCRIPT_PRETTIER
+  # Python — covered by per-project ruff
+  - PYTHON_PYLINT
+  - PYTHON_FLAKE8
+  - PYTHON_BLACK
+  - PYTHON_ISORT
+  - PYTHON_MYPY
+  - PYTHON_RUFF
+  # Security — covered by security-analysis.yml
+  - REPOSITORY_TRIVY
+  - REPOSITORY_SEMGREP
+  - REPOSITORY_GITLEAKS
+  - REPOSITORY_SECRETLINT
+  - REPOSITORY_CHECKOV
+  - REPOSITORY_DEVSKIM
+  - REPOSITORY_GRYPE
+  # Duplicate-code — covered by CodeRabbit (REPORT-089 decision)
+  - COPYPASTE_JSCPD
+  # Spelling — covered by vale.yml
+  - SPELL_CSPELL
+  - SPELL_PROSELINT
+  - SPELL_VALE
+  - SPELL_LYCHEE
+  - SPELL_MISSPELL
+
+# Paths that MegaLinter should never inspect. Keep in sync with the
+# ignore lists used by ESLint / ruff / vale where possible.
+FILTER_REGEX_EXCLUDE: '(\.git/|node_modules/|dist/|build/|coverage/|megalinter-reports/|\.cache/|\.next/|\.astro/|\.lock\.yml$|pnpm-lock\.yaml$|package-lock\.json$|yarn\.lock$)'
+
+# Reporters
+SHOW_ELAPSED_TIME: true
+FILEIO_REPORTER: false
+GITHUB_STATUS_REPORTER: true
+GITHUB_COMMENT_REPORTER: true
+EMAIL_REPORTER: false
+TEXT_REPORTER: true
+SARIF_REPORTER: false
+
+# Per-linter tuning ───────────────────────────────────────────────────────────
+
+# Markdown: defer to repo-local .markdownlint.json if present; otherwise the
+# linter falls back to MegaLinter's bundled defaults.
+MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .markdownlint.json
+MARKDOWN_MARKDOWNLINT_DISABLE_ERRORS: false
+
+# YAML: same pattern — repo-local .yamllint.yml wins.
+YAML_YAMLLINT_CONFIG_FILE: .yamllint.yml
+YAML_YAMLLINT_DISABLE_ERRORS: false
+
+# Skip generated / vendored YAML where formatting noise is not actionable.
+YAML_YAMLLINT_FILTER_REGEX_EXCLUDE: '(\.lock\.yml$|\.github/workflows/shared/)'
+
+# actionlint: do not duplicate shellcheck inside actions — bash steps are
+# already covered by BASH_SHELLCHECK above.
+ACTION_ACTIONLINT_DISABLE_ERRORS: false
+
+# Shell: only inspect tracked .sh / .bash scripts; ignore vendored installers.
+BASH_SHELLCHECK_FILTER_REGEX_EXCLUDE: '(/vendor/|/third_party/)'
+
+# JSON: keep strict — JSON has no taste, only syntax.
+JSON_JSONLINT_DISABLE_ERRORS: false

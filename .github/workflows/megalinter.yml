@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MegaLinter — Format-only complement to existing linters
+# ─────────────────────────────────────────────────────────────────────────────
+# Action: oxsecurity/megalinter/flavors/documentation@e08c2b05e3dbc40af4c23f41172ef1e068a7d651  # v8.8.0
+# Reference: https://megalinter.io/latest/flavors/documentation/
+#
+# Scope (REPORT-146 §5 A-6, REPORT-145 — format-layer-only):
+#   Enabled linters (formatting only):
+#     - YAML_YAMLLINT         — YAML formatting
+#     - MARKDOWN_MARKDOWNLINT  — Markdown formatting (complements vale: vale = content, markdownlint = format)
+#     - BASH_SHELLCHECK       — Shell script syntax
+#     - JSON_JSONLINT         — JSON formatting
+#     - ACTION_ACTIONLINT     — GitHub Actions syntax
+#
+#   Disabled (covered elsewhere — see .mega-linter.yml DISABLE list):
+#     - JAVASCRIPT_* / TYPESCRIPT_*  → project ESLint
+#     - PYTHON_*                     → project ruff
+#     - REPOSITORY_TRIVY / SEMGREP   → security-analysis.yml
+#     - COPYPASTE_JSCPD              → CodeRabbit (REPORT-089)
+#     - SPELL_*                      → vale.yml
+#
+# Rollout phases:
+#   Phase 1 (observation): continue-on-error: true (retired)
+#   Phase 2 (hard gate):   continue-on-error removed — failures block merge (current, REPORT-304 §4)
+#
+# Configuration is read from `.mega-linter.yml` at the repository root
+# (synced via sync.yml from shared/templates/.mega-linter.yml).
+#
+# Managed by: openclaw-nsmg/governance-central. Do not edit locally.
+# ─────────────────────────────────────────────────────────────────────────────
+name: MegaLinter
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+concurrency:
+  group: megalinter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  megalinter:
+    name: MegaLinter (format layer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true  # MegaLinter diff mode requires git fetch origin
+          # MegaLinter needs full git history to diff against the base branch
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run MegaLinter (documentation flavor, format-only)
+        id: ml
+        # Phase 2 — hard gate (REPORT-304 §4). The Phase 1 observation-period
+        # `continue-on-error: true` was removed so MegaLinter format failures
+        # now block merge instead of being advisory-only.
+        uses: oxsecurity/megalinter/flavors/documentation@e08c2b05e3dbc40af4c23f41172ef1e068a7d651  # v8.8.0
+        env:
+          # All other behaviour lives in .mega-linter.yml at the repo root
+          # so downstream repos can override on a per-repo basis if needed.
+          VALIDATE_ALL_CODEBASE: false
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload MegaLinter reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: megalinter-reports
+          path: |
+            megalinter-reports
+            mega-linter.log
+          retention-days: 14
+          if-no-files-found: ignore
