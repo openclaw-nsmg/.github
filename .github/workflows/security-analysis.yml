@@ -29,11 +29,8 @@ on:
     - cron: '0 6 * * 1'   # Weekly Monday 06:00 UTC
   workflow_dispatch:
 
-permissions:
-  contents: read
-  security-events: write
-  actions: read
-  pull-requests: read
+# Top-level permissions intentionally omitted — each job declares its own
+# least-privilege scope below (zizmor excessive-permissions, Issue #457).
 
 concurrency:
   group: security-analysis-${{ github.ref }}
@@ -43,6 +40,10 @@ jobs:
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read        # 同上：upload-sarif 需要
     timeout-minutes: 15
     container:
       image: semgrep/semgrep:1.121.0
@@ -82,7 +83,7 @@ jobs:
           fi
       - name: Upload Semgrep SARIF
         if: steps.semgrep-sarif-check.outputs.sarif_exists == 'true'
-        uses: github/codeql-action/upload-sarif@78ed0c7291d93e40c51b085850dc669a4c3ab73b  # v3
+        uses: github/codeql-action/upload-sarif@458d36d7d4f47d0dd16ca424c1d3cda0060f1360  # v3.35.5
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -90,6 +91,10 @@ jobs:
   trivy:
     name: Trivy filesystem & dep scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read        # codeql-action/upload-sarif 调 workflow-runs API 需要（#457 Q4）
     timeout-minutes: 15
     env:
       # Pinned at job level for Dependabot version-update visibility.
@@ -149,7 +154,7 @@ jobs:
           fi
       - name: Upload Trivy SARIF
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@78ed0c7291d93e40c51b085850dc669a4c3ab73b  # v3
+        uses: github/codeql-action/upload-sarif@458d36d7d4f47d0dd16ca424c1d3cda0060f1360  # v3.35.5
         with:
           sarif_file: trivy.sarif
           category: trivy
@@ -157,6 +162,9 @@ jobs:
   gitleaks:
     name: Gitleaks secret scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -185,7 +193,7 @@ jobs:
           printf 'GITLEAKS_CLI_ARGS=%s\n' "${config_args[*]}" >> "$GITHUB_ENV"
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITLEAKS_LICENSE is required for organization repos. When the org
@@ -203,6 +211,9 @@ jobs:
   zizmor:
     name: Zizmor scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -232,6 +243,7 @@ jobs:
     needs: [semgrep, trivy, gitleaks, zizmor]
     if: always()
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Decide whether the security scanners succeeded or failed
         uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe  # v1.2.2
