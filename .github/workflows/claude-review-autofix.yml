@@ -1,0 +1,413 @@
+name: Auto Fix Review Findings
+# ═══════════════════════════════════════════════════════════════════════════════
+# Claude Review Autofix — Unified Ring 2 + Ring 3 (Natural Re-trigger Pattern)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Based on: anthropics/claude-code-action official pattern
+#   pull_request_review + prompt → Agent Mode → push fix
+#
+# Architecture (REPORT-199, Issue #330, REPORT-280):
+#   - Triggers when CodeRabbit or Claude Code Review submits findings
+#   - Claude Code reads the review comments and pushes targeted fixes
+#   - Unified handler for both review sources
+#   - Permissions inherited from .claude/settings.json (SSOT) — no --allowedTools
+#
+# Escalation via Natural Re-trigger (replaces repository_dispatch):
+#   - Attempt 1-2: Ring 2 (standard fix, 50 turns)
+#   - Attempt 3:   Ring 3 (deep fix, extended context, 80 turns)
+#   - Attempt 4+:  Natural termination → label needs-human-review
+#
+# Why single workflow? (REPORT-280 architecture decision):
+#   - Eliminates fragile repository_dispatch + allowed_bots dependency
+#   - Leverages pull_request_review natural re-trigger after each push
+#   - All state in one place (commit counting), no cross-workflow payload
+#   - Community-validated pattern (urcades/pr-autofix, Cloudflare 2.7x/MR)
+#
+# Official reference:
+#   detector.ts: isPullRequestReviewEvent + context.inputs.prompt → "agent" mode
+#   Agent mode = Claude reads context, fixes code, pushes commit
+#
+# ⚠️ SECURITY NOTE:
+# This workflow checks out the PR branch and pushes code with elevated
+# permissions. Only triggers for same-repo PRs (fork injection prevented).
+# ═══════════════════════════════════════════════════════════════════════════════
+on:
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: review-autofix-${{ github.event.pull_request.number }}
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Conditional latest-wins (Issue #464): an active repair may be cancelled ONLY
+  # by a newer event that is itself eligible to perform the same repair. A later
+  # NON-actionable submitted review (e.g. CodeRabbit COMMENTED) evaluates this
+  # expression to false, so it CANNOT preempt a running actionable Autofix. A
+  # newer actionable review still cancels-and-replaces (latest-wins). This
+  # expression is byte-equal (modulo the ${{ }} wrapper and whitespace) to
+  # jobs.auto-fix-review.if, which remains as defence-in-depth. Full-expression
+  # parity is enforced by scripts/autofix-contract-check.sh — do NOT let it drift.
+  cancel-in-progress: >-
+    ${{
+      (
+        github.event.review.user.login == 'coderabbitai[bot]' &&
+        github.event.review.state == 'changes_requested'
+      ) ||
+      (
+        github.event.review.user.login == 'openclaw-wayne' &&
+        (github.event.review.state == 'commented' || github.event.review.state == 'changes_requested') &&
+        (contains(github.event.review.body, '🔴') || contains(github.event.review.body, '🟡') || contains(github.event.review.body, '🚫'))
+      )
+    }}
+
+jobs:
+  auto-fix-review:
+    name: Auto-fix review findings with Claude Code
+    # Trigger conditions:
+    #   1. CodeRabbit submits CHANGES_REQUESTED, OR
+    #   2. Claude Code Review (openclaw-wayne) submits a review containing
+    #      severity markers (🔴 or 🟡) — in either COMMENTED or
+    #      CHANGES_REQUESTED state (REPORT-206: Claude uses CHANGES_REQUESTED
+    #      when blocking findings exist, not just COMMENTED)
+    if: |
+      (
+        github.event.review.user.login == 'coderabbitai[bot]' &&
+        github.event.review.state == 'changes_requested'
+      ) ||
+      (
+        github.event.review.user.login == 'openclaw-wayne' &&
+        (github.event.review.state == 'commented' || github.event.review.state == 'changes_requested') &&
+        (contains(github.event.review.body, '🔴') || contains(github.event.review.body, '🟡') || contains(github.event.review.body, '🚫'))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write  # Required for OIDC token exchange
+      actions: read    # Required for Claude to read CI context
+    timeout-minutes: 20
+    steps:
+      - name: Validate branch origin (prevent fork injection)
+        id: validate
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::error::Refusing to auto-fix fork PR (head=$HEAD_REPO, base=$BASE_REPO)"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "safe=true" >> "$GITHUB_OUTPUT"
+
+      # ─── Readiness preflight (Issue #464) ────────────────────────────────────
+      # Runs AFTER same-repo/fork validation and BEFORE any credential-dependent
+      # or mutating work. Maps the runtime inputs into step env and tests ONLY for
+      # non-emptiness in shell — values are never printed. The log/summary carries
+      # only input NAMES with available-to-this-run / unavailable-to-this-run; it
+      # makes no organization-level existence claim. When a repository is not ready
+      # it is "Present-not-Active": the workflow exists and runs, but every
+      # credential/mutating step below is gated on ready == 'true', so it performs
+      # zero App-token use, zero Claude invocation and zero mutation.
+      - name: Readiness preflight
+        if: steps.validate.outputs.safe == 'true'
+        id: preflight
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GATEKEEPER_APP_PRIVATE_KEY: ${{ secrets.GATEKEEPER_APP_PRIVATE_KEY }}
+          GATEKEEPER_APP_CLIENT_ID: ${{ vars.GATEKEEPER_APP_CLIENT_ID }}
+        run: |
+          ready=true
+          for name in ANTHROPIC_API_KEY GATEKEEPER_APP_PRIVATE_KEY GATEKEEPER_APP_CLIENT_ID; do
+            if [ -n "${!name}" ]; then
+              echo "$name: available-to-this-run"
+            else
+              echo "$name: unavailable-to-this-run"
+              ready=false
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      # ─── Present-not-Active no-op notice (Issue #464) ────────────────────────
+      - name: Present-not-Active no-op notice
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready != 'true'
+        run: |
+          echo "::notice::Present-not-Active: a required runtime input is unavailable-to-this-run. Zero App-token use, zero Claude invocation, zero mutation. No secret values are read or printed."
+
+      - name: Check auto-fix cycle count and determine ring level
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true'
+        id: cycle
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+            const autofixCommits = commits.filter(c =>
+              c.commit.message.includes('[review-auto-fix]')
+            );
+            const count = autofixCommits.length;
+            // Ring escalation thresholds:
+            //   count 0-1: Ring 2 (standard fix)
+            //   count 2:   Ring 3 (deep fix, last automated attempt)
+            //   count 3+:  Natural termination (human escalation)
+            const RING2_MAX = 2;
+            const RING3_MAX = 3;
+            let ring = 'terminated';
+            if (count < RING2_MAX) {
+              ring = 'ring2';
+            } else if (count < RING3_MAX) {
+              ring = 'ring3';
+            }
+            core.setOutput('count', count);
+            core.setOutput('ring', ring);
+            core.setOutput('within_limit', ring !== 'terminated' ? 'true' : 'false');
+            core.info(`Review auto-fix attempts: ${count} → ${ring} (Ring2 max=${RING2_MAX}, Ring3 max=${RING3_MAX})`);
+            if (ring === 'terminated') {
+              core.warning(`Auto-fix limit reached (${count} cycles). Escalating to human review.`);
+            } else if (ring === 'ring3') {
+              core.notice(`Escalating to Ring 3 deep fix (attempt ${count + 1}/${RING3_MAX}).`);
+            }
+
+      # ─── Natural Termination: Human Escalation ────────────────────────────────
+      - name: Post termination notice and label PR
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.within_limit == 'false'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        env:
+          CYCLE_COUNT: ${{ steps.cycle.outputs.count }}
+        with:
+          script: |
+            const count = process.env.CYCLE_COUNT;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: [
+                '🛑 **Auto-fix natural termination — escalating to human review**',
+                '',
+                `Claude Code has attempted ${count} auto-fixes (Ring 2 × 2 + Ring 3 × 1) but review findings persist.`,
+                '',
+                '**What was tried:**',
+                '- Ring 2 (standard fix): 2 attempts with targeted fixes',
+                '- Ring 3 (deep fix): 1 attempt with extended context and reasoning',
+                '',
+                'Remaining findings require human architectural judgment.',
+                'Please review the outstanding CodeRabbit comments manually.'
+              ].join('\n')
+            });
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: ['needs-human-review']
+            });
+
+      # ─── Ring 3 Escalation Notice ────────────────────────────────────────────
+      - name: Post Ring 3 escalation notice
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.ring == 'ring3'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        env:
+          CYCLE_COUNT: ${{ steps.cycle.outputs.count }}
+        with:
+          script: |
+            const count = process.env.CYCLE_COUNT;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: [
+                '⚡ **Escalating to Ring 3 (deep fix)** — attempt ' + (parseInt(count) + 1) + '/3',
+                '',
+                `Ring 2 standard fixes (${count} attempts) did not fully resolve review findings.`,
+                'Now attempting Ring 3 with extended context, deeper reasoning, and broader scope.',
+                '',
+                'If this attempt also fails, the PR will be escalated to human review.'
+              ].join('\n')
+            });
+
+      # ─── Generate App Token & Checkout ───────────────────────────────────────
+      # Checkout with the ADLC-Gatekeeper App token and persist-credentials
+      # (default true) so that claude-code-action's internal `git fetch` — which
+      # runs BEFORE the action's own configureGitAuth — uses the App token left
+      # behind by checkout. Passing github_token to the action only reconfigures
+      # push auth, not this pre-fetch. (Issue #451, supersedes PR #443.)
+      - name: Generate ADLC-Gatekeeper token
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.within_limit == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.GATEKEEPER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GATEKEEPER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout code
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.within_limit == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Record pre-fix SHA
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.within_limit == 'true'
+        id: original
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code (Ring 2 — standard fix)
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.ring == 'ring2'
+        id: claude-ring2
+        uses: anthropics/claude-code-action@457933a99ae7fadf5ad2d29b5e319ade6b3b032a # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          use_commit_signing: "true"
+          allowed_bots: "coderabbitai[bot]"
+          prompt: |
+            A code review was submitted on PR #${{ github.event.pull_request.number }}
+            by ${{ github.event.review.user.login }}.
+            Review state: ${{ github.event.review.state }}
+            Review body:
+            ---
+            ${{ github.event.review.body }}
+            ---
+            Your task:
+            1. Read the review comments above and identify all actionable findings.
+            2. Also read the inline review comments on this PR for specific
+               line-level feedback.
+            3. For each finding, apply a minimal, targeted fix.
+            4. Do NOT fix stylistic suggestions or informational notes — only fix
+               items marked as required changes (🔴 Critical / 🟡 Important) or
+               items in a CHANGES_REQUESTED review.
+            5. If a finding is unclear, requires architectural decisions, or
+               cannot be fixed due to file-path constraints (e.g.,
+               .github/workflows/ or .github/agents/ files), leave a PR comment
+               explaining why you skipped it.
+            6. Commit with message '[review-auto-fix] address review findings from
+               ${{ github.event.review.user.login }}'
+               and push to the same PR branch.
+            7. Finally, clear the CodeRabbit CHANGES_REQUESTED state.
+               - If you successfully pushed fixes, do NOTHING (CodeRabbit will auto-dismiss on push).
+               - If you were blocked from fixing (e.g., protected workflow files), you MUST dismiss the review manually:
+                 ```bash
+                 REVIEW_ID=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
+                   -H "Accept: application/vnd.github+json" \
+                   -H "X-GitHub-Api-Version: 2022-11-28" \
+                   --jq '[.[] | select(.state=="CHANGES_REQUESTED" and .user.login=="coderabbitai[bot]")] | last | .id // empty')
+                 if [ -n "$REVIEW_ID" ]; then
+                   gh api -X PUT repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/$REVIEW_ID/dismissals \
+                     -H "Accept: application/vnd.github+json" \
+                     -H "X-GitHub-Api-Version: 2022-11-28" \
+                     -f message="Auto-dismissed: Escalating to human review" -f event="DISMISS"
+                 fi
+                 gh pr edit ${{ github.event.pull_request.number }} --add-label needs-human-review
+                 ```
+            Constraints:
+            - Do NOT create a new PR — push directly to the existing PR branch.
+            - Do NOT modify .github/workflows/claude-*.yml files (self-modification protection).
+            - Do NOT modify .github/agents/ files.
+            - You MAY modify other .github/ files if they are already part of the PR's changed files.
+            - Do NOT modify files outside the scope of the review findings.
+            - If all findings are informational/optional, leave a comment and
+              do NOT push an empty commit.
+            - The `gh api` dismissal in step 7 does NOT create a commit, so the
+              auto-fix cycle counter is not incremented. This ensures the PR
+              is unblocked for human review without triggering infinite loops.
+            - Before adding or changing any CLI flags in workflow files, MUST
+              verify the flag exists by running `<tool> --help` or checking
+              official docs. Never guess CLI syntax.
+          claude_args: "--max-turns 50 --model ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}"
+          exclude_comments_by_actor: "claude[bot],openclaw-wayne,coderabbitai[bot]"
+
+      - name: Run Claude Code (Ring 3 — deep fix)
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.ring == 'ring3'
+        id: claude-ring3
+        uses: anthropics/claude-code-action@457933a99ae7fadf5ad2d29b5e319ade6b3b032a # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          use_commit_signing: "true"
+          allowed_bots: "coderabbitai[bot]"
+          prompt: |
+            ## Context
+            You are **Ring 3 (Deep Fix)** — the LAST automated resort before human escalation.
+            Ring 2 standard fixes have already been attempted ${{ steps.cycle.outputs.count }} times
+            on PR #${{ github.event.pull_request.number }} but review findings persist.
+
+            Latest review by ${{ github.event.review.user.login }}:
+            ---
+            ${{ github.event.review.body }}
+            ---
+
+            ## Task
+            1. Read ALL unresolved review comments on this PR (both inline and top-level).
+            2. Analyze WHY previous Ring 2 attempts failed — look at the commit history
+               for `[review-auto-fix]` commits and understand what was already tried.
+            3. For each unresolved finding, determine the ROOT CAUSE and apply a
+               comprehensive fix (not just a surface-level patch).
+            4. If a file is sync-managed (`.github/workflows/`, `.github/hooks/`,
+               `.github/instructions/`): DO NOT modify it. Note it for human review.
+            5. Commit with message: '[review-auto-fix] Ring 3 deep fix — address
+               persistent review findings from ${{ github.event.review.user.login }}'
+            6. Push the commit.
+            7. If you cannot fix ALL issues (e.g., protected files, architectural decisions):
+               - Add label `needs-human-review` to the PR.
+               - Leave a comment summarizing what was fixed and what remains.
+
+            ## CRITICAL ANTI-LOOP RULES
+            - NEVER post `@coderabbitai autofix` or any `@coderabbitai` command.
+            - NEVER post `@claude` or any bot-triggering @mention in comments.
+            - NEVER trigger any other bot, webhook, or automation via comments.
+
+            ## Scope & Constraints
+            - Do NOT create a new PR — push directly to the existing PR branch.
+            - Do NOT modify .github/workflows/claude-*.yml files (self-modification protection).
+            - Do NOT modify .github/agents/ files.
+            - You MAY modify other .github/ files if they are already part of the PR's changed files.
+            - Focus on CORRECTNESS over minimality — Ring 3 is the last chance.
+            - Before adding or changing any CLI flags in workflow files, MUST
+              verify the flag exists by running `<tool> --help` or checking
+              official docs. Never guess CLI syntax.
+          claude_args: "--max-turns 80 --model ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}"
+          exclude_comments_by_actor: "claude[bot],openclaw-wayne,coderabbitai[bot]"
+
+      # ─── Defense in Depth: Verify no protected files modified ────────────────
+      - name: Verify no workflow files were modified (defense-in-depth)
+        if: steps.validate.outputs.safe == 'true' && steps.preflight.outputs.ready == 'true' && steps.cycle.outputs.within_limit == 'true'
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          ORIGINAL_SHA: ${{ steps.original.outputs.sha }}
+        run: |
+          CURRENT_SHA=$(git rev-parse HEAD)
+          if [ "$CURRENT_SHA" != "$ORIGINAL_SHA" ]; then
+            WORKFLOW_CHANGES=$(git diff --name-only "$ORIGINAL_SHA" HEAD -- '.github/workflows/claude-*' '.github/agents/' 2>/dev/null || true)
+            if [ -n "$WORKFLOW_CHANGES" ]; then
+              echo "::error::Claude modified protected files — reverting and failing:"
+              echo "$WORKFLOW_CHANGES"
+              git revert --no-edit "$ORIGINAL_SHA"..HEAD
+              git push origin "HEAD:refs/heads/${BRANCH}"
+              exit 1
+            fi
+          fi
+          echo "✓ No protected file modifications detected."
+      # ─── Credential Cleanup (must be last step) ─────────────────────────────
+      - name: Cleanup checkout credentials (actions/checkout v6 includeIf)
+        if: always()
+        run: |
+          # actions/checkout v6+ stores credentials in external files via includeIf.
+          # git config --unset-all is a no-op for included values (issue #1510).
+          # This step neutralizes credentials after all git operations complete.
+          # Ref: anthropics/claude-code-action#1510, actions/checkout#2286
+          # git config canonicalizes section names to lowercase, so match 'includeif'
+          # (not 'includeIf'). Only delete credential files owned by checkout (under RUNNER_TEMP).
+          git config --local --name-only --get-regexp '^includeif\.gitdir:' 2>/dev/null | while read -r key; do
+            file=$(git config --local --get "$key" 2>/dev/null)
+            git config --local --unset "$key" 2>/dev/null || true
+            if [ -n "$file" ] && [[ "$file" == "${RUNNER_TEMP}"/* ]]; then
+              rm -f "$file"
+            fi
+          done
+          git config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          echo "✓ Checkout credentials cleaned up."
+# > This file is managed by openclaw-nsmg/governance-central. Do not edit locally.
