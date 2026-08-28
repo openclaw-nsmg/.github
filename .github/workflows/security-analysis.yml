@@ -46,7 +46,7 @@ jobs:
       actions: read        # 同上：upload-sarif 需要
     timeout-minutes: 15
     container:
-      image: semgrep/semgrep:1.121.0
+      image: semgrep/semgrep:1.174.0
     if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
