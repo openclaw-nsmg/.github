@@ -84,6 +84,13 @@ SARIF_REPORTER: false
 MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .markdownlint.json
 MARKDOWN_MARKDOWNLINT_DISABLE_ERRORS: false
 
+# Exclude immutable knowledge archives from markdownlint. RW Raw Sources
+# (process-notes) and preserved historical REPORT bodies are governed by the
+# dedicated RW engine and must not be reformatted by a generic linter. This is
+# narrower than a global FILTER_REGEX_EXCLUDE and keeps the check blocking for
+# active Wiki pages, REGISTRY, and all other Markdown. See issue #500.
+MARKDOWN_MARKDOWNLINT_FILTER_REGEX_EXCLUDE: '(docs/knowledge/(process-notes|reports)/)'
+
 # YAML: same pattern — repo-local .yamllint.yml wins.
 YAML_YAMLLINT_CONFIG_FILE: .yamllint.yml
 YAML_YAMLLINT_DISABLE_ERRORS: false
