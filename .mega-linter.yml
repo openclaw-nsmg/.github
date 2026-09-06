@@ -95,8 +95,9 @@ MARKDOWN_MARKDOWNLINT_FILTER_REGEX_EXCLUDE: '(docs/knowledge/(process-notes|repo
 YAML_YAMLLINT_CONFIG_FILE: .yamllint.yml
 YAML_YAMLLINT_DISABLE_ERRORS: false
 
-# Skip generated / vendored YAML where formatting noise is not actionable.
-YAML_YAMLLINT_FILTER_REGEX_EXCLUDE: '(\.lock\.yml$|\.github/workflows/shared/)'
+# Skip generated / vendored YAML and immutable RW Raw Sources where formatting
+# noise is not actionable. Active YAML elsewhere remains blocking.
+YAML_YAMLLINT_FILTER_REGEX_EXCLUDE: '(\.lock\.yml$|\.github/workflows/shared/|docs/knowledge/process-notes/)'
 
 # actionlint: do not duplicate shellcheck inside actions — bash steps are
 # already covered by BASH_SHELLCHECK above.
